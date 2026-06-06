@@ -2,6 +2,8 @@
 
 > 中国县域治理模拟游戏 · County Governance Simulation
 
+**🧩 在线试玩：** [https://chuhouan.github.io/qing-county/](https://chuhouan.github.io/qing-county/)
+
 **文件已发送至：** `npm start`
 
 ---
