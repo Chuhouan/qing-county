@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>青县 - 中国县域治理模拟</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- 主菜单弹窗（启动页用，游戏内也复用） -->
+  <div id="modal-overlay" class="hidden"></div>
+
+  <div id="start-screen">
+    <div class="start-container">
+      <div class="start-title">青 縣</div>
+
+      <!-- 主菜单按钮 -->
+      <div id="main-menu" class="main-menu">
+        <button class="menu-btn menu-btn-primary" onclick="window._showNewGame()">📋 新游戏</button>
+        <button class="menu-btn" onclick="window._showLoadGame()">📂 载入游戏</button>
+        <button class="menu-btn" onclick="window._showManual()">📖 游戏百科</button>
+        <button class="menu-btn" onclick="window._showMore()">⋯ 更多</button>
+      </div>
+
+      <!-- 新游戏设置表单（默认隐藏） -->
+      <div id="newgame-form" class="start-form" style="display:none;">
+        <div class="form-group">
+          <label>选择难度</label>
+          <div id="difficulty-options" class="difficulty-grid">
+            <div class="diff-card selected" data-diff="normal"><div class="diff-name">普通</div><div class="diff-desc">平原农业县</div></div>
+            <div class="diff-card" data-diff="easy"><div class="diff-name">简单</div><div class="diff-desc">城郊县</div></div>
+            <div class="diff-card" data-diff="hard"><div class="diff-name">困难</div><div class="diff-desc">山区贫困县</div></div>
+            <div class="diff-card" data-diff="hell"><div class="diff-name">地狱</div><div class="diff-desc">老工业县</div></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>书记类型</label>
+          <div id="player-type-options" class="type-grid">
+            <div class="type-card selected" data-type="balance"><div class="type-name">平衡型</div><div class="type-desc">各项均衡</div></div>
+            <div class="type-card" data-type="politics"><div class="type-name">政治型</div><div class="type-desc">善抓党建</div></div>
+            <div class="type-card" data-type="economy"><div class="type-name">经济型</div><div class="type-desc">懂经济</div></div>
+            <div class="type-card" data-type="cadre"><div class="type-name">干部型</div><div class="type-desc">善用人</div></div>
+            <div class="type-card" data-type="reform"><div class="type-name">改革型</div><div class="type-desc">敢创新</div></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>选择2个性格特质</label>
+          <div id="player-trait-options" class="trait-grid"></div>
+          <div id="trait-detail" class="trait-detail">点击特质查看详情</div>
+        </div>
+        <div class="form-group">
+          <label>年度治理路线</label>
+          <div id="strategy-options" class="difficulty-grid">
+            <div class="diff-card selected" data-strategy="industrial"><div class="diff-name">🏭 工业强县</div><div class="diff-desc">经济+30%，稳定-10%</div></div>
+            <div class="diff-card" data-strategy="people"><div class="diff-name">🏥 民生为本</div><div class="diff-desc">稳定+25%，财政+15%</div></div>
+            <div class="diff-card" data-strategy="ecology"><div class="diff-name">🌳 生态立县</div><div class="diff-desc">上级加分，财政-20%</div></div>
+            <div class="diff-card" data-strategy="reform"><div class="diff-name">🚩 改革先锋</div><div class="diff-desc">政资+25%，风险+30%</div></div>
+          </div>
+        </div>
+        <div id="start-difficulty-desc" class="start-difficulty-desc">典型的北方农业县，财政紧张</div>
+        <button id="btn-start-game" class="btn-start">🚩 走马上任</button>
+        <button class="btn-back" onclick="window._backToMenu()">← 返回主菜单</button>
+      </div>
+
+      <!-- 载入游戏（默认隐藏） -->
+      <div id="loadgame-panel" class="start-form" style="display:none;">
+        <div id="save-slots-area"></div>
+        <button class="btn-back" onclick="window._backToMenu()">← 返回主菜单</button>
+      </div>
+
+      <!-- 更多（制作名单等） -->
+      <div id="more-panel" class="start-form" style="display:none;">
+        <div class="credits-content">
+          <div class="credits-title">🎬 制作名单</div>
+          <div class="credits-section">
+            <div class="credits-role">开发团队</div>
+            <div class="credits-name">ChuHouan</div>
+          </div>
+          <div class="credits-section">
+            <div class="credits-role">数据来源</div>
+            <div class="credits-name">青县（原型为华北某县）</div>
+          </div>
+          <div class="credits-section">
+            <div class="credits-role">特别致谢</div>
+            <div class="credits-name">WorkBuddy · 青县人民</div>
+          </div>
+          <div class="credits-section" style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border-color);">
+            <div class="credits-name" style="font-size:11px;color:var(--text-muted);">《青县》v0.18.1</div>
+            <div class="credits-name" style="font-size:10px;color:var(--text-muted);">2026 · 基于Web技术构建</div>
+          </div>
+        </div>
+        <button class="btn-back" onclick="window._backToMenu()">← 返回主菜单</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="app" style="display:none;"></div>
+
+  <!-- Scripts loading order matters due to class dependencies -->
+  <script>
+    // Set global error handler
+    window.onerror = function(msg, url, line, col, error) {
+      console.error('Global error:', msg, error);
+      const app = document.getElementById('app');
+      if (app) {
+        app.innerHTML = `<div style="padding:40px;color:#f44336;"><h3>加载出错</h3><p>${msg}</p><pre>${error?.stack || ''}</pre><button onclick="location.reload()" style="margin-top:20px;padding:8px 20px;">重新加载</button></div>`;
+        app.style.display = 'block';
+      }
+      return false;
+    };
+  </script>
+  <script src="js/engine/EventBus.js"></script>
+  <script src="js/engine/StateManager.js"></script>
+  <script src="js/engine/TimeSystem.js"></script>
+  <script src="js/engine/Calculator.js"></script>
+  <script src="js/models/Player.js"></script>
+  <script src="js/models/Official.js"></script>
+  <script src="js/models/County.js"></script>
+  <script src="js/models/PopulationGroup.js"></script>
+  <script src="js/models/SocialNetwork.js"></script>
+  <script src="js/models/PublicOpinion.js"></script>
+  <script src="js/models/Enterprise.js"></script>
+  <script src="js/models/Event.js"></script>
+  <script src="js/models/Decision.js"></script>
+  <script src="js/models/Finance.js"></script>
+  <script src="js/models/EconomicSector.js"></script>
+  <script src="js/models/TownSector.js"></script>
+  <script src="js/models/PopulationData.js"></script>
+  <script src="js/models/NarrativeMemoryEntry.js"></script>
+  <script src="js/models/Plotline.js"></script>
+  <script src="js/models/SuperiorRelations.js"></script>
+  <script src="js/models/PetitionCase.js"></script>
+  <script src="js/systems/EventSystem.js"></script>
+  <script src="js/systems/SocialSystem.js"></script>
+  <script src="js/systems/EconomicSystem.js"></script>
+  <script src="js/systems/PersonnelSystem.js"></script>
+  <script src="js/systems/FactionRelationshipSystem.js"></script>
+  <script src="js/systems/IntelSystem.js"></script>
+  <script src="js/systems/EvaluationSystem.js"></script>
+  <script src="js/systems/PolicySystem.js"></script>
+  <script src="js/systems/CorruptionSystem.js"></script>
+  <script src="js/systems/TaskSystem.js"></script>
+  <script src="js/systems/PopulationSystem.js"></script>
+  <script src="js/systems/NarrativeMemory.js"></script>
+  <script src="js/systems/PlotlineEngine.js"></script>
+  <script src="js/systems/NarrativeSystem.js"></script>
+  <script src="js/systems/EpilogueGenerator.js"></script>
+  <script src="js/systems/SuperiorRelationshipSystem.js"></script>
+  <script src="js/systems/PetitionSystem.js"></script>
+  <script src="js/data/difficultyConfig.js"></script>
+  <script src="js/data/eventLibrary.js"></script>
+  <script src="js/data/gameManual.js"></script>
+  <script src="js/data/termDefinitions.js"></script>
+  <script src="js/data/changelog.js"></script>
+  <script src="js/data/traits.js"></script>
+  <script src="js/data/focusTree.js"></script>
+  <script src="js/data/pressingMatters.js"></script>
+  <script src="js/data/npcMotions.js"></script>
+  <script src="js/data/voteIssues.js"></script>
+  <script src="js/data/plotlines.js"></script>
+  <script src="js/data/plotlineEvents.js"></script>
+  <script src="js/data/epilogueTemplates.js"></script>
+  <script src="js/ui/ChartHelper.js"></script>
+  <script src="js/ui/AISecretary.js"></script>
+  <script src="js/ui/UIManager.js"></script>
+  <script src="js/systems/NPCSystem.js"></script>
+  <script src="js/engine/GameEngine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
