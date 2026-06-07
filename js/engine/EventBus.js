@@ -127,4 +127,8 @@ const EVENTS = {
 
   // 上级
   SUPERIOR_EVENT: 'superior:event',
+
+  // 巡视
+  INSPECTION_ACTIVE: 'inspection:active',
+  INSPECTION_CHOICE: 'inspection:choice',
 };

@@ -198,6 +198,12 @@ class GameEngine {
       superiorSys.weeklyUpdate();
     }
 
+    // ===== 巡视巡查系统 =====
+    var inspectionSys = this.getSystem('inspection');
+    if (inspectionSys && inspectionSys.weeklyUpdate) {
+      inspectionSys.weeklyUpdate();
+    }
+
     // ===== 经济活力（核心状态之二） =====
     const baseVitality = 40; // 基准值
     const gdpBoost = ((county.economy.gdpGrowth || 0.05) - 0.03) * 300; // GDP每高3%→+9活力

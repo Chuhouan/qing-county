@@ -345,6 +345,7 @@
       const eventSystem = new EventSystem();
       const factionSystem = new FactionRelationshipSystem();
       const superiorSystem = new SuperiorRelationshipSystem();
+      const inspectionSystem = new InspectionSystem();
 
       gameEngine
         .registerSystem('economy', economicSystem)  // 统一经济系统
@@ -360,7 +361,8 @@
         .registerSystem('population', popSystem)
         .registerSystem('event', eventSystem)
         .registerSystem('factions', factionSystem)
-        .registerSystem('superiorRelations', superiorSystem);
+        .registerSystem('superiorRelations', superiorSystem)
+        .registerSystem('inspection', inspectionSystem);
       // v3：信访系统已集成到社会系统内部
       // 但兼容旧引用：将socialSystem.petition注册为'petition'
       gameEngine.systems['petition'] = socialSystem.petition;

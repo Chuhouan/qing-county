@@ -60,6 +60,7 @@ class UIManager {
             <button class="nav-btn" data-view="manual">📖百科</button>
             <span class="nav-group-label">信息</span>
             <button class="nav-btn" data-view="faction">🔗关系</button>
+            <button class="nav-btn" data-view="inspection">🔍巡视</button>
             <button class="nav-btn" data-view="eventlog">📜日志</button>
           </nav>
           <span class="nav-sep"></span>
@@ -122,6 +123,7 @@ class UIManager {
               <div id="view-tasks" class="view-panel"></div>
               <div id="view-eventlog" class="view-panel"></div>
               <div id="view-npc" class="view-panel"></div>
+              <div id="view-inspection" class="view-panel"></div>
               <div id="view-talent" class="view-panel"></div>
               <div id="view-faction" class="view-panel"></div>
               <div id="view-social" class="view-panel"></div>
@@ -444,6 +446,8 @@ class UIManager {
       // 自动切换到办公室视图显示行动
       setTimeout(() => { this.switchView('office'); this.refreshAll(); }, 500);
     });
+    // ——— 巡视决策弹窗 ———
+    eventBus.on(EVENTS.INSPECTION_CHOICE, (d) => this._showInspectionChoiceModal(d));
     // ——— 每周决策流 ———
     eventBus.on(EVENTS.WEEKLY_FOCUS, (d) => this._showWeeklyFocusPanel(d));
     eventBus.on(EVENTS.WEEKLY_EVENTS, (d) => this._showWeeklyEventPanel(d));
@@ -519,6 +523,7 @@ class UIManager {
       data: '_renderData', manual: '_renderManual', tasks: '_renderTasks', eventlog: '_renderEventLog', npc: '_renderNPC', talent: '_renderTalentPool',
       faction: '_renderFactionView', social: '_renderSocial',
       economy: '_renderEconomy', superior: '_renderSuperior',
+      inspection: '_renderInspectionView',
     };
     if (renderers[viewName]) {
       var fn = this[renderers[viewName]];
@@ -766,6 +771,75 @@ class UIManager {
     // 关闭弹窗
     document.getElementById('modal-overlay')?.classList.add('hidden');
     this.refreshAll();
+  }
+
+  /** 展示巡视决策弹窗 */
+  _showInspectionChoiceModal(data) {
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay || !data || !data.choices) return;
+    overlay.classList.remove('hidden');
+
+    const uniqueId = data.eventId || 'insp_' + Date.now();
+    const choicesHtml = data.choices.map((c, i) => `
+      <div class="decision-option" onclick="uiManager._resolveInspectionChoice('${uniqueId}', ${i})"
+        style="cursor:pointer;padding:10px 14px;border:1px solid var(--border-color);border-radius:6px;margin-bottom:8px;">
+        <div style="font-size:13px;font-weight:500;">${c.label}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${c.desc || ''}</div>
+      </div>
+    `).join('');
+
+    overlay.innerHTML = `
+      <div class="modal-card" style="width:480px;">
+        <div class="mc-header">
+          <span>${data.title || '巡视决策'}</span>
+          <button class="mc-close" onclick="document.getElementById('modal-overlay').classList.add('hidden')">✕</button>
+        </div>
+        <div class="mc-body" style="padding:16px;max-height:60vh;overflow-y:auto;">
+          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">${data.message || ''}</div>
+          ${choicesHtml}
+          <button class="sc-btn" style="margin-top:4px;width:100%;background:var(--bg-secondary);"
+            onclick="document.getElementById('modal-overlay').classList.add('hidden')">暂不处理</button>
+        </div>
+      </div>`;
+
+    // 存储到notificationLog以便持久化查阅
+    this._notificationLog.push({
+      id: uniqueId, time: timeSystem?.getTimeString?.() || '',
+      type: 'inspection', title: data.title || '巡视决策',
+      message: data.message || '',
+      choices: data.choices,
+      persistent: true, resolved: false,
+      week: Math.ceil((timeSystem?.day || 1) / 7),
+      month: timeSystem?.month || 1, year: timeSystem?.year || 2026,
+    });
+    this._updateNotificationLog();
+  }
+
+  /** 执行巡视决策选择 */
+  _resolveInspectionChoice(eventId, choiceIndex) {
+    const evt = this._notificationLog.find(e => e.id === eventId);
+    if (!evt || !evt.choices || !evt.choices[choiceIndex]) return;
+    const choice = evt.choices[choiceIndex];
+
+    // 先移除弹窗
+    document.getElementById('modal-overlay')?.classList.add('hidden');
+
+    // 调用回调（如果有）
+    if (choice.callback && typeof choice.callback === 'function') {
+      choice.callback(choiceIndex);
+    }
+    // 调用action（如果有）
+    if (choice.action && typeof choice.action === 'function') {
+      choice.action();
+    }
+
+    evt.resolved = true;
+    evt.choiceLabel = choice.label;
+    this._updateNotificationLog();
+    this.refreshAll();
+
+    // 显示选中确认
+    this.showToast('✅ 已选择：' + (choice.label || '选项'), 'info');
   }
 
   /** 处理字符串形式的上级操作（如 repayFavor_0） */
@@ -5185,7 +5259,206 @@ class UIManager {
     }
   }
 
-  _renderSuperiorSafe(c) {
+  // ══════════════════════════
+  //  巡视巡查视图
+  // ══════════════════════════
+
+  _renderInspectionView(c) {
+    try {
+      const insSys = gameEngine.getSystem('inspection');
+      if (!insSys || !insSys.getStatusSummary) { c.innerHTML = '<div class="empty-state">⚠️ 巡视系统未就绪</div>'; return; }
+      const s = insSys.getStatusSummary();
+      if (!s) { c.innerHTML = '<div class="empty-state">⚠️ 巡视系统数据异常</div>'; return; }
+
+      const names = { finance:'财政资金', project:'工程建设', land:'土地出让', personnel:'选人用人',
+        partyBuilding:'党的建设', environment:'生态环保', safety:'安全生产', poverty:'乡村振兴' };
+
+      var h = '<div class="view-header"><span class="vh-icon">🔍</span><span class="vh-title">巡视巡查</span></div>';
+
+      // ——— 顶部状态卡 ———
+      var bc = s.statusBadge?.color || '#9ca3af';
+      var bl = s.statusBadge?.label || '⚪';
+      var sd = s.team ? (insSys._getStyleDescription ? insSys._getStyleDescription(s) : (s.team.styleName || '')) : '';
+      h += '<div class="sc-card" style="margin-bottom:12px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+          '<div><span style="font-size:24px;">' + bl + '</span> <span style="font-size:14px;font-weight:600;">' + s.statusLabel + '</span></div>' +
+          (s.team ? '<div style="font-size:11px;color:var(--text-muted);text-align:right;">组长：' + s.team.leader + '<br>风格：' + sd + '</div>' : '') +
+        '</div>' +
+      '</div>';
+
+      // ——— 空状态 ———
+      if (s.status === 'none') {
+        h += '<div class="sc-card" style="padding:20px;text-align:center;">' +
+          '<div style="font-size:48px;margin-bottom:12px;">☮️</div>' +
+          '<div style="font-size:14px;font-weight:500;color:var(--text-secondary);">当前无巡视任务</div>' +
+          '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">巡视将在第2月起触发。上级信任度越低、全县腐败指数越高，触发概率越大。后续间隔1-2年随机。</div>' +
+          (s.stats?.totalInterviews > 0 ? '<div style="font-size:11px;color:var(--accent-green);margin-top:6px;">📊 已累计完成' + s.stats.totalInterviews + '次巡视</div>' : '') +
+        '</div>';
+        c.innerHTML = h; return;
+      }
+
+      // ——— 巡视组信息 ———
+      if (s.team) {
+        var fl = (s.team.focus || []).map(function(f){return names[f]||f;}).join('、');
+        h += '<div class="sc-card" style="margin-bottom:12px;">' +
+          '<div class="sc-card-title">🔍 巡视组信息</div>' +
+          '<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;">' +
+            '<div style="flex:1;"><span style="color:var(--text-muted);">组长：</span>' + s.team.leader + '</div>' +
+            '<div style="flex:1;"><span style="color:var(--text-muted);">风格：</span>' + sd + '</div>' +
+            '<div style="flex:1;"><span style="color:var(--text-muted);">成员：</span>' + (s.team.members || []).join('、') + '</div>' +
+            '<div style="flex:1;"><span style="color:var(--text-muted);">重点关注：</span><span style="color:var(--accent-yellow);">' + fl + '</span></div>' +
+          '</div>' +
+        '</div>';
+      }
+
+      // ——— 风险领域 ———
+      if (s.riskAreas && s.riskAreas.length > 0 && ['notified','active'].includes(s.status)) {
+        h += '<div class="sc-card" style="margin-bottom:12px;"><div class="sc-card-title">📊 风险领域监控</div>';
+        var fl2 = (s.team?.focus || []);
+        s.riskAreas.forEach(function(r) {
+          var pct = r.severity > 0 ? Math.round(r.discovered / r.severity * 100) : 0;
+          var sc = r.severity > 60 ? 'var(--accent-red)' : r.severity > 30 ? '#eab308' : '#22c55e';
+          var sl = r.severity > 60 ? '高危' : r.severity > 30 ? '中危' : '低危';
+          var f = fl2.includes(r.area);
+          h += '<div style="padding:6px 0;border-bottom:1px solid var(--border-color);' + (f?'background:rgba(234,179,8,0.08);padding:6px 4px;border-radius:4px;':'') + '">' +
+            '<div style="display:flex;justify-content:space-between;font-size:12px;">' +
+              '<span>' + (f?'🔍 ':'') + (names[r.area]||r.area) + '</span>' +
+              '<span style="color:'+sc+';">' + sl + ' ' + r.severity + '</span></div>' +
+            '<div style="display:flex;align-items:center;gap:8px;">' +
+              '<div class="st-track" style="flex:1;height:6px;"><div class="st-fill" style="width:'+pct+'%;background:'+(pct>80?'var(--accent-red)':'#4a9eff')+';height:6px;"></div></div>' +
+              '<span style="font-size:10px;color:'+(pct>80?'var(--accent-red)':'var(--text-secondary)')+';">已发现' + pct + '%</span>' +
+            '</div>' +
+            (r.discovered >= r.severity * 0.8 && r.severity > 40 ? '<div style="font-size:10px;color:var(--accent-red);margin-top:2px;">⚠️ 巡视组已注意到此领域</div>' : '') +
+          '</div>';
+        });
+        h += '</div>';
+      }
+
+      // ——— 巡视期操作面板 ———
+      if (s.status === 'active') {
+        h += '<div class="sc-card" style="margin-bottom:12px;">' +
+          '<div class="sc-card-title">🎯 巡视期可执行操作</div>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">' +
+            '<button class="sc-btn" style="padding:6px 12px;font-size:12px;" onclick="uiManager._inspectionQuickAction(\'cooperate\')">🤝 配合巡视</button>' +
+            '<button class="sc-btn" style="padding:6px 12px;font-size:12px;" onclick="uiManager._inspectionQuickAction(\'guide\')">🧭 引导方向</button>' +
+            '<button class="sc-btn" style="padding:6px 12px;font-size:12px;" onclick="uiManager._inspectionQuickAction(\'obstruct\')">🛑 消极应对</button>' +
+            '<button class="sc-btn" style="padding:6px 12px;font-size:12px;" onclick="uiManager._inspectionQuickAction(\'meeting\')">📋 应对会议(-10精力)</button>' +
+          '</div>' +
+        '</div>';
+      }
+
+      // ——— 反馈 ———
+      if (['feedback','rectifying'].includes(s.status)) {
+        var f = s.findings;
+        if (f && f.feedbackLevel) {
+          var ll = {general:'一般',serious:'较重',critical:'严重'}[f.feedbackLevel]||'一般';
+          var lc = {general:'#22c55e',serious:'#eab308',critical:'#ef4444'}[f.feedbackLevel]||'#9ca3af';
+          h += '<div class="sc-card" style="margin-bottom:12px;border-left:3px solid '+lc+';">' +
+            '<div class="sc-card-title">📋 巡视反馈（<span style="color:'+lc+';">' + ll + '</span>）</div>' +
+            '<div style="font-size:12px;">一般问题'+(f.general?.length||0)+'项 · 较重问题'+(f.serious?.length||0)+'项 · 严重问题'+(f.critical?.length||0)+'项</div>' +
+            (f.critical?.length > 0 ? '<div style="font-size:11px;color:var(--accent-red);margin-top:4px;">⚠️ 严重问题已移交纪委</div>' : '') +
+          '</div>';
+        }
+
+        var rect = s.rectification;
+        if (rect && rect.items && rect.items.length > 0) {
+          var done = rect.items.filter(function(i){return i.completed;}).length;
+          var total = rect.items.length;
+          h += '<div class="sc-card" style="margin-bottom:12px;"><div class="sc-card-title">🛠 整改落实 (' + done + '/' + total + ')</div>';
+          rect.items.forEach(function(item) {
+            var pct = item.effortRequired > 0 ? Math.round(item.effortSpent/item.effortRequired*100) : 0;
+            var st = item.completed ? '✅ 已完成' : '⏳ ' + pct + '%';
+            var n2 = {finance:'财政',project:'工程',land:'土地',personnel:'人事',partyBuilding:'党建',environment:'环保',safety:'安全',poverty:'乡村振兴'};
+            var iname = n2[item.area]||item.area;
+            h += '<div style="padding:6px 0;border-bottom:1px solid var(--border-color);">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                '<div><span style="font-size:12px;">' + iname + '：' + item.desc + '</span><div style="font-size:10px;color:var(--text-muted);">需要' + item.effortRequired + '努力值</div></div>' +
+                '<span style="font-size:11px;white-space:nowrap;">' + st + '</span></div>' +
+              (item.completed ? '' : '<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">' +
+                '<div class="st-track" style="flex:1;height:4px;"><div class="st-fill" style="width:'+pct+'%;height:4px;background:#4a9eff;"></div></div>' +
+                '<button class="sc-btn" style="padding:2px 8px;font-size:10px;" onclick="uiManager._inspectionRectAction(\''+item.id+'\',\'fast\')">⚡精力</button>' +
+                '<button class="sc-btn" style="padding:2px 8px;font-size:10px;" onclick="uiManager._inspectionRectAction(\''+item.id+'\',\'invest\')">💰资金</button></div>') +
+            '</div>';
+          });
+          h += '</div>';
+
+          if (!rect.reportSubmitted) {
+            h += '<button class="sc-btn" style="width:100%;padding:10px;font-size:14px;font-weight:600;background:var(--accent-blue);color:white;" onclick="uiManager._submitInspectionReport()">📝 提交整改验收报告</button>';
+          } else {
+            var rc = rect.inspectionResult === 'passed' ? 'var(--accent-green)' : rect.inspectionResult === 'conditional' ? '#eab308' : 'var(--accent-red)';
+            h += '<div class="sc-card" style="padding:10px;margin-top:8px;border-left:3px solid '+rc+';">' +
+              '<div style="font-size:13px;font-weight:500;">验收结果：<span style="color:'+rc+';">' +
+                ({passed:'✅通过',conditional:'⚠️有条件通过',failed:'❌未通过',none:'未验收'}[rect.inspectionResult]||'未验收') + '</span></div>' +
+              '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">完成率：' + Math.round(rect.reportQuality * 100) + '%</div>' +
+            '</div>';
+          }
+        }
+      }
+
+      // ——— 统计 ———
+      if (s.stats && s.status !== 'none') {
+        var tc = (s.findings?.general?.length||0)+(s.findings?.serious?.length||0)+(s.findings?.critical?.length||0);
+        h += '<div class="sc-card" style="margin-top:12px;"><div class="sc-card-title">📈 巡视统计</div>' +
+          '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center;">' +
+            '<div style="cursor:pointer;" onclick="uiManager.showToast(\'共约谈'+s.stats.totalInterviews+'人次干部\',\'info\')">' +
+              '<div style="font-size:20px;font-weight:600;">'+s.stats.totalInterviews+'</div><div style="font-size:9px;color:var(--text-muted);">谈话人次</div></div>' +
+            '<div style="cursor:pointer;" onclick="uiManager.showToast(\'共发现'+s.stats.cluesDiscovered+'条问题线索\',\'info\')">' +
+              '<div style="font-size:20px;font-weight:600;">'+s.stats.cluesDiscovered+'</div><div style="font-size:9px;color:var(--text-muted);">发现线索</div></div>' +
+            '<div style="cursor:pointer;" onclick="uiManager.showToast(\'已移交'+s.stats.cluesTransferred+'条严重线索至纪委\',\'info\')">' +
+              '<div style="font-size:20px;font-weight:600;">'+s.stats.cluesTransferred+'</div><div style="font-size:9px;color:var(--text-muted);">移交纪委</div></div>' +
+            '<div style="cursor:pointer;" onclick="uiManager.showToast(\'共'+s.stats.officialsPunished+'名干部受处分\',\'info\')">' +
+              '<div style="font-size:20px;font-weight:600;">'+s.stats.officialsPunished+'</div><div style="font-size:9px;color:var(--text-muted);">处分干部</div></div>' +
+          '</div></div>';
+      }
+
+      c.innerHTML = h;
+    } catch(e) {
+      console.error('[巡视视图]', e, e.stack);
+      c.innerHTML = '<div class="empty-state">⚠️ 巡视视图渲染失败</div>';
+    }
+  }
+
+  /** 巡视快速操作 */
+  _inspectionQuickAction(action) {
+    const insSys = gameEngine.getSystem('inspection');
+    if (!insSys) return;
+    // 调用后端执行操作
+    if (insSys.handleQuickAction) {
+      insSys.handleQuickAction(action);
+      this.showToast('✅ 操作已执行', 'info');
+      this.refreshAll();
+    } else {
+      this.showToast('⚠️ 巡视系统未响应', 'warning');
+    }
+  }
+
+  /** 巡视整改单项目操作 */
+  _inspectionRectAction(itemId, mode) {
+    const insSys = gameEngine.getSystem('inspection');
+    if (!insSys) return;
+    if (insSys.handleRectItemAction) {
+      var result = insSys.handleRectItemAction(itemId, mode);
+      if (result && result.error) {
+        this.showToast(result.error, 'warning');
+      } else {
+        this.showToast('✅ ' + result.message, 'success');
+        this.refreshAll();
+      }
+    }
+  }
+
+  /** 提交整改报告 */
+  _submitInspectionReport() {
+    const insSys = gameEngine.getSystem('inspection');
+    if (insSys && insSys.submitRectificationReport) {
+      if (insSys.submitRectificationReport()) {
+        this.showToast('✅ 整改报告已提交', 'success');
+        this.refreshAll();
+      } else {
+        this.showToast('⚠️ 提交失败：巡视未处于整改阶段', 'warning');
+      }
+    }
+  }  _renderSuperiorSafe(c) {
     const sr = stateManager.get('superiorRelations');
     const player = stateManager.get('player');
     const county = stateManager.get('county');

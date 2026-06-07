@@ -311,6 +311,55 @@ class CorruptionSystem {
     }
   }
 
+  /** 获取腐败数据（给巡视系统用） */
+  getCorruptionData() {
+    const player = stateManager.get('player');
+    const county = stateManager.get('county');
+    if (!player || !county) return null;
+    return {
+      level: player.corruption?.level || 0,
+      totalBribes: player.corruption?.totalBribes || 0,
+      investigationRisk: player.corruption?.investigationRisk || 0,
+      protectiveUmbrella: player.corruption?.protectiveUmbrella || 0,
+      countyIndex: county.institution?.corruptionIndex || 0,
+      whistleblower: player.corruption?.whistleblower || false,
+      favorsGiven: player.corruption?.favorsGiven || 0,
+    };
+  }
+
+  /** 接收巡视移交的线索 */
+  receiveInspectionClue(clue) {
+    const player = stateManager.get('player');
+    if (!player) return;
+    if (!player.corruption) {
+      player.corruption = {
+        level: 0, investigationRisk: 0, protectiveUmbrella: 0,
+        totalBribes: 0, favorsGiven: 0, records: [],
+      };
+    }
+    const severityFactor = (clue.severity || 50) / 100;
+    player.corruption.investigationRisk = calculator.clamp(
+      (player.corruption.investigationRisk || 0) + severityFactor * 30,
+      0, 100
+    );
+    const county = stateManager.get('county');
+    if (county?.institution) {
+      county.institution.corruptionIndex = calculator.clamp(
+        (county.institution.corruptionIndex || 0) + severityFactor * 10,
+        0, 100
+      );
+    }
+    this._addCorruptionEvent('巡视移交线索：' + (clue.description || '未知'));
+    if (player.corruption.investigationRisk > 75 && !player.corruption.whistleblower) {
+      player.corruption.whistleblower = true;
+      eventBus.emit(EVENTS.UI_NOTIFICATION, {
+        type: 'warning', title: '🔍 纪委调查',
+        message: '巡视组移交线索后，市纪委决定启动初步核实。',
+        persistent: true,
+      });
+    }
+  }
+
   /** 获取玩家腐败状态摘要 */
   getSummary() {
     const player = stateManager.get('player');
